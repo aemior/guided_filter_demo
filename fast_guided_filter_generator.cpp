@@ -5,10 +5,13 @@ using namespace Halide;
 class FastGuidedFilter : public Halide::Generator<FastGuidedFilter>{
     public:
 
+        GeneratorParam<int> radius{"radius",8,1,100};
         Input<Buffer<uint8_t>> guided{"guided", 3},input{"input", 3};
         Input<float> eps{"eps"};
-        Input<int> radius{"radius"};
-        Input<int> s{"s"};
+        //@TODO set radius as Input param is really slow.
+        //Input<int> radius{"radius"};
+        //@TODO still dont know how to write a [up/down]sample func with,arbitrary scale factor.
+        //Input<int> s{"s"};
         Output<Buffer<uint8_t>> result{"result", 3};
  
         void generate() {
@@ -17,7 +20,7 @@ class FastGuidedFilter : public Halide::Generator<FastGuidedFilter>{
             Func input_c = BoundaryConditions::mirror_image(input);
             Func guided_c = BoundaryConditions::mirror_image(guided);
 
-            Expr rad = cast<int>(radius/s);
+            Expr rad = cast<int>(radius/2);
             Expr size = 2*rad+1;
             Expr area = size*size;
             Expr eps_ = eps*area;
@@ -42,8 +45,8 @@ class FastGuidedFilter : public Halide::Generator<FastGuidedFilter>{
             inputF(x,y,c) = Halide::cast<float>(input_c(x,y,c)/255.0f);
             guidedF(x,y,c) = Halide::cast<float>(guided_c(x,y,c));
 
-            inputSub(x,y,c) = downsample(inputF, s)(x,y,c);
-            guidedSub(x,y,c) = downsample(guidedF,s)(x,y,c);
+            inputSub(x,y,c) = downsample(inputF)(x,y,c);
+            guidedSub(x,y,c) = downsample(guidedF)(x,y,c);
 
             mean_I_sx(x,y,c) = sum(guidedSub(x+rb, y, c));
             mean_I(x,y,c) = sum(mean_I_sx(x,y+rb,c));
@@ -75,8 +78,9 @@ class FastGuidedFilter : public Halide::Generator<FastGuidedFilter>{
             mean_b_sx(x,y,c) = sum(b(x+rb,y,c)); 
             mean_b(x,y,c) = sum(mean_b_sx(x,y+rb,c));
 
-            mean_aUp(x,y,c) = upsample(mean_a, s)(x,y,c);
-            mean_bUp(x,y,c) = upsample(mean_b, s)(x,y,c);
+            mean_aUp(x,y,c) = upsample(mean_a)(x,y,c);
+            mean_bUp(x,y,c) = upsample(mean_b)(x,y,c);
+
 
             q(x,y,c) = mean_aUp(x,y,c)*guidedF(x,y,c) + mean_bUp(x,y,c);
             result(x,y,c) = Halide::cast<uint8_t>(Halide::clamp(q(x,y,c)*fac, 0.0f, 255.0f));
@@ -95,7 +99,7 @@ class FastGuidedFilter : public Halide::Generator<FastGuidedFilter>{
             --------------------
             Opencv: 32ms
             Halide manually-tuned: 41ms
-            Halide auto-schedule: 51ms
+            Halide auto-schedule: 6ms
             ================/*/ 
 
             if(auto_schedule){
@@ -177,27 +181,23 @@ class FastGuidedFilter : public Halide::Generator<FastGuidedFilter>{
 
         }
     private:
-        Var x,y;
-         // Downsample using nearest neighbor interpolation
-        Func downsample(Func f, Expr ratio) {
+        //@TODO Copy from local_laplacian_generator.cpp
+        Var x, y, c, k;
+        // Downsample with a 1 3 3 1 filter
+        Func downsample(Func f) {
             using Halide::_;
-            Expr xcod = cast<int>(strict_float(ceil((x + 0.5f) * ratio - 0.5f)));
-            Expr ycod = cast<int>(strict_float(ceil((y + 0.5f) * ratio - 0.5f)));
-            Func ret;
-            ret(x,y,_) = f(xcod,ycod,_); 
-            return ret;
+            Func downx, downy;
+            downx(x, y, _) = (f(2 * x - 1, y, _) + 3.0f * (f(2 * x, y, _) + f(2 * x + 1, y, _)) + f(2 * x + 2, y, _)) / 8.0f;
+            downy(x, y, _) = (downx(x, 2 * y - 1, _) + 3.0f * (downx(x, 2 * y, _) + downx(x, 2 * y + 1, _)) + downx(x, 2 * y + 2, _)) / 8.0f;
+            return downy;
         }
 
         // Upsample using bilinear interpolation
-        Func upsample(Func f, Expr ratio) {
+        Func upsample(Func f) {
             using Halide::_;
-            Expr xcod = cast<int>(strict_float(ceil(x/ratio)));
-            Expr ycod = cast<int>(strict_float(ceil(y/ratio)));
-            Expr xcod2 = cast<int>(strict_float(ceil((x+1)/ratio)));
-            Expr ycod2 = cast<int>(strict_float(ceil((y+1)/ratio)));
             Func upx, upy;
-            upx(x, y, _) = lerp(f(xcod, y, _), f(xcod2, y, _), ((x % 2) * 2 + 1) / 4.0f);
-            upy(x, y, _) = lerp(upx(x, ycod, _), upx(x, ycod2, _), ((y % 2) * 2 + 1) / 4.0f);
+            upx(x, y, _) = lerp(f(x / 2, y, _), f((x + 1) / 2, y, _), ((x % 2) * 2 + 1) / 4.0f);
+            upy(x, y, _) = lerp(upx(x, y / 2, _), upx(x, (y + 1) / 2, _), ((y % 2) * 2 + 1) / 4.0f);
             return upy;
         }
 };

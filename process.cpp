@@ -40,7 +40,7 @@ int main(int argc, char **argv) {
         output.device_sync();
     });
     double best_manual_2 = benchmark([&]() {
-        fast_guided_filter(guided, input, eps,radius,s, output_fast);
+        fast_guided_filter(guided, input, eps, output_fast);
         output_fast.device_sync();
     });
     printf("Manually-tuned time(guided filter): %gms\n", best_manual_1 * 1e3);
@@ -53,7 +53,7 @@ int main(int argc, char **argv) {
         output.device_sync();
     });
     double best_auto_2 = benchmark([&]() {
-        fast_guided_filter_auto_schedule(guided, input, eps, radius, s, output_fast);
+        fast_guided_filter_auto_schedule(guided, input, eps, output_fast);
         output_fast.device_sync();
     });
     printf("Auto-scheduled time(guided filter): %gms\n", best_auto_1 * 1e3);

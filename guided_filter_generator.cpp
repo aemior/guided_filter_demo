@@ -88,7 +88,6 @@ class GuidedFilter : public Halide::Generator<GuidedFilter>{
             Halide manually-tuned: 40ms
             Halide auto-schedule: 18ms
             ================/*/ 
-
             if(auto_schedule){
                 //nothing
             }
